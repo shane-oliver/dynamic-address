@@ -141,23 +141,139 @@ def calculate_md5(t_Feed):
     writeFile.close()
 
 
+def checkRequiredArguments(opts, parser):
+    if len(sys.argv) <= 1:
+        return False
+    return True
+
+
 def setup():
     pass
 
 
-def add_entry():
-    pass
+def add_entry(f_loc, t_loc, feedname, ip_address):
+    feed = f_loc + str(feedname)
+    tempFeed = t_loc + str(feedname)
+    manifest = f_loc + 'manifest.xml'
+    tempManifest = t_loc + 'manifest.xml'
+    copy_feed_to_tempFeed(feed, tempFeed)
+    copy_Manifest_to_tempManifest(manifest, tempManifest)
+    ip = netaddr.IPNetwork(ip_address)
+    address = ip.ip
+    size = ip.size
+    adj_size = size - 1
+    value = ip.value
+    print("\nAdding address of              -> " + str(ip_address) +
+          " (including " + str(adj_size) + " subequent hosts)")
+
+    print("\n\n IP address is {};  IP Size is {}; IP Valuse is {}; IP Networks is {} \n\n".format(address, size, value, ip.network))
+
+    if adj_size == 0:
+        newentry = '{"1":' + str(value) + '}'
+    else:
+        newentry = '{"2":[' + str(value) + ', ' + str(adj_size) + ']}'
+    # print(newentry)
+    modify_file(tempFeed, '#add', newentry)
+    calculate_md5(tempFeed)
+    update_manifest(feedname, tempFeed, tempManifest)
+    copy_tempFeed_to_feed(feed, tempFeed)
+    copy_tempManifest_to_Manifest(manifest, tempManifest)
+
+def del_entry(f_loc, t_loc, feedname, ip_address):
+    feed = f_loc + str(feedname)
+    tempFeed = t_loc + str(feedname)
+    manifest = f_loc + 'manifest.xml'
+    tempManifest = t_loc + 'manifest.xml'
+    copy_feed_to_tempFeed(feed, tempFeed)
+    copy_Manifest_to_tempManifest(manifest, tempManifest)
+    ip = netaddr.IPNetwork(ip_address)
+    address = ip.ip   # assigned but never used
+    size = ip.size
+    adj_size = size - 1
+    value = ip.value
+    print("\nRemoving address of            -> " + str(ip_address)
+          + " (including " + str(adj_size) + " subequent hosts)")
+
+    print("\n\n IP address is {};  IP Size is {}; IP Valuse is {} \n\n".format(address, size, value))
+
+    if adj_size == 0:
+        oldline = '{"1":' + str(value) + '}'
+    else:
+        oldline = '{"2":[' + str(value) + ', ' + str(adj_size) + ']}'
+    delete_line(oldline, tempFeed)
+
+    calculate_md5(tempFeed)
+    update_manifest(feedname, tempFeed, tempManifest)
+    copy_tempFeed_to_feed(feed, tempFeed)
+    copy_tempManifest_to_Manifest(manifest, tempManifest)
 
 
-def del_entry():
-    pass
+def list_entry(f_loc, feedname):
+    feed = f_loc + str(feedname)
 
+    pattern_network = '{"(\d+)":\[\d+, \d+\]}'
+    pattern_host = '{"(\d+)":\d+}'
+    pattern_ip_network = '{"\d+":\[(\d+), \d+]}'
+    pattern_ip_host = '{"\d+":(\d+)}'
+    pattern_range = '\d+":\[\d+, (\d+)]}'
 
-def list_entry():
-    pass
+    with open(feed, 'r') as file:
+        lines = file.readlines()
+
+    for line in lines:
+        host = re.search(pattern_host, line)
+        network = re.search(pattern_network, line)
+        if host:
+            ip = str(netaddr.IPAddress(re.findall(pattern_ip_host,
+                                                  line)[0]))
+            print("Host entry:    " + ip)
+
+        elif network:
+            # ip = re.findall(pattern_ip_network, line)[0]
+            ip = str(netaddr.IPAddress(re.findall(pattern_ip_network,
+                                                  line)[0]))
+            range = re.findall(pattern_range, line)[0]
+            print("Network Entry: " + ip + " (+" + range + " hosts)")
 
 
 def auto_task():
+    pass
+
+
+def new_feed(f_loc, t_loc, feedname):
+    name = str(feedname)
+    feed = f_loc + str(feedname)
+    feed_template = f_loc + 'Feed'
+    manifest = f_loc + 'manifest.xml'
+    tempManifest = t_loc + 'manifest.xml'
+    copy_Manifest_to_tempManifest(manifest, tempManifest)
+    print(name)
+    create_newFeed(feed_template, feed)
+    create_manifest_entry(tempManifest, name)
+    copy_tempManifest_to_Manifest(manifest, tempManifest)
+    # print "Completed, add the following line to your SRX to accept feed:\n
+    #         set security dynamic-address address-name "+name+
+    #         " profile category IPFilter feed "+name
+    username = input("Please enter your SRX Username:")
+    password = getpass.getpass()
+    srx_list = 'srx-list'
+    srxs = open(srx_list, 'r')
+    for srx in srxs:
+        print("Logging into SRX "+srx)
+        login = str(srx)
+        dev = Device(host=login, user=username, password=password)
+        dev.open()
+        dev.timeout = 300
+        cu = Config(dev)
+        set_cmd = 'set security dynamic-address address-name ' + name + \
+                  ' profile category IPFilter feed '+name
+        cu.load(set_cmd, format='set')
+        print("Applying changes, please wait....")
+        cu.commit()
+        dev.close()
+
+
+def drop_feed(f_loc, t_loc, feedname):
     pass
 
 
@@ -165,14 +281,25 @@ def main():
     base_dir = os.getcwd()
 
     parser = optparse.OptionParser()
-    parser.add_option('--conf', dest='conf_file', help='YAML input file name', metavar="CONF_FILE", default="undefined")
-    parser.add_option('-a', '--add', dest='a', help='Add ip entry to FEED', default=False, action="store_true")
-    parser.add_option('-d', '--del', dest='d', help='Delete IP entry from FEED', default=False, action="store_true")
-    parser.add_option('-l', '--list', dest='l', help='List all of the IP addresses in the FEED', default=False, action="store_true")
-    parser.add_option('-s', '--setup', dest='s', help='Copy files to the correct location', default=False, action="store_true")
-    parser.add_option('--auto', dest='auto', help='Add IP addresses from failed Authentication to FEED', default=False, action="store_true")
-    parser.add_option('-f', '--feed', dest='feed', help='Name of the FEED', metavar="FEED", default="undefined")
+    group1 = optparse.OptionGroup(parser, 'Mutually Exclusive Options')
+    group2 = optparse.OptionGroup(parser, 'Aadditional Options')
+    group1.add_option('--conf', dest='conf_file', help='YAML input file name', metavar="CONF_FILE", default="undefined")
+    group1.add_option('-a', '--add', dest='a', help='Add ip entry to FEED (Requires --feed and --ip)', default=False, action="store_true")
+    group1.add_option('-d', '--del', dest='d', help='Delete IP entry from FEED (Requires --feed and --ip)', default=False, action="store_true")
+    group1.add_option('-l', '--list', dest='l', help='List all of the IP addresses in the FEED (Requires --feed)', default=False, action="store_true")
+    group1.add_option('-s', '--setup', dest='s', help='Copy files to the correct location', default=False, action="store_true")
+    group1.add_option('--auto', dest='auto', help='Add IP addresses from failed Authentication to FEED', default=False, action="store_true")
+    group1.add_option('--new', dest='new_feed', help='Create a New Feed and add to SRX (Requires --feed)', default=False, action="store_true")
+    group1.add_option('--drop', dest='drop_feed', help='Drop an Existing Feed and remove from SRX (Requires --feed)', default=False, action="store_true")
+    # below are required depending on above actions
+    group2.add_option('-f', '--feed', dest='feed', help='Name of the FEED', metavar="FEED", default="undefined")
+    group2.add_option('-i', '--ip', dest='ip_addr', help='IP Address', metavar="IP ADDRESS", default="undefined")
+    parser.add_option_group(group1)
+    parser.add_option_group(group2)
     (options, args) = parser.parse_args()
+    if not checkRequiredArguments(options, args):
+        parser.print_help()
+        sys.exit()
 
     if options.conf_file is not None:
         config_file = os.path.join(base_dir, "dynamic-policy.conf")
@@ -182,148 +309,19 @@ def main():
 
     """ process the YAML file incase of changes to variable and then """
     if options.s:
-        setup()
+        setup(feed_location, temp_location)
     elif (options.a and (options.feed is not None)):
-        add_entry(feed_location, temp_location)
+        add_entry(feed_location, temp_location, options.feed, options.ip_addr)
     elif (options.d and (options.feed is not None)):
-        del_entry()
+        del_entry(feed_location, temp_location, options.feed, options.ip_addr)
     elif (options.l and (options.feed is not None)):
-        list_entry()
+        list_entry(feed_location, options.feed)
     elif (options.auto and (options.feed is not None)):
         auto_task()
-
-    """
-    if options.data_file == "undefined":
-        base_dir = "/Users/olivers/OneDrive/CDM-Work Files/PSN/MAN Config work/Saved_MAN_Configs-2017-05-19/"
-        files = files = [ "BRNATJCO_SC1.txt","BRNATJCO_SC2.txt" ]
-    else:
-        files.append(options.data_file)
-    """
-
-    if (sys.argv[1] == 'add'):
-        feed = feed_location + str(sys.argv[2])
-        tempFeed = temp_location + str(sys.argv[2])
-        manifest = feed_location+'manifest.xml'
-        tempManifest = temp_location+'manifest.xml'
-        copy_feed_to_tempFeed(feed, tempFeed)
-        copy_Manifest_to_tempManifest(manifest, tempManifest)
-        ip = netaddr.IPNetwork(sys.argv[3])
-        feedname = sys.argv[2]
-        address = ip.ip
-        size = ip.size
-        adj_size = size - 1
-        value = ip.value
-        print("\nAdding address of              -> " + str(sys.argv[3]) +
-              " (including " + str(adj_size) + " subequent hosts)")
-
-        print("\n\n IP address is {};  IP Size is {}; IP Valuse is {}; IP Networks is {} \n\n".format(address, size, value, ip.network))
-
-        if adj_size == 0:
-            newentry = '{"1":' + str(value) + '}'
-        else:
-            newentry = '{"2":[' + str(value) + ', ' + str(adj_size) + ']}'
-        # print(newentry)
-        modify_file(tempFeed, '#add', newentry)
-        calculate_md5(tempFeed)
-        update_manifest(feedname, tempFeed, tempManifest)
-        copy_tempFeed_to_feed(feed, tempFeed)
-        copy_tempManifest_to_Manifest(manifest, tempManifest)
-
-    if sys.argv[1] == 'del':
-        feed = feed_location + str(sys.argv[2])
-        tempFeed = temp_location + str(sys.argv[2])
-        manifest = feed_location + 'manifest.xml'
-        tempManifest = temp_location + 'manifest.xml'
-        copy_feed_to_tempFeed(feed, tempFeed)
-        copy_Manifest_to_tempManifest(manifest, tempManifest)
-        ip = netaddr.IPNetwork(sys.argv[3])
-        feedname = sys.argv[2]
-        address = ip.ip   # assigned but never used
-        size = ip.size
-        adj_size = size - 1
-        value = ip.value
-        print("\nRemoving address of            -> " + str(sys.argv[3])
-              + " (including " + str(adj_size) + " subequent hosts)")
-
-        print("\n\n IP address is {};  IP Size is {}; IP Valuse is {} \n\n".format(address, size, value))
-
-        if adj_size == 0:
-            oldline = '{"1":' + str(value) + '}'
-        else:
-            oldline = '{"2":[' + str(value) + ', ' + str(adj_size) + ']}'
-        delete_line(oldline, tempFeed)
-
-        calculate_md5(tempFeed)
-        update_manifest(feedname, tempFeed, tempManifest)
-        copy_tempFeed_to_feed(feed, tempFeed)
-        copy_tempManifest_to_Manifest(manifest, tempManifest)
-
-    if sys.argv[1] == 'list':
-        feed = feed_location + str(sys.argv[2])
-
-        pattern_network = '{"(\d+)":\[\d+, \d+\]}'
-        pattern_host = '{"(\d+)":\d+}'
-        pattern_ip_network = '{"\d+":\[(\d+), \d+]}'
-        pattern_ip_host = '{"\d+":(\d+)}'
-        pattern_range = '\d+":\[\d+, (\d+)]}'
-
-        with open(feed, 'r') as file:
-            lines = file.readlines()
-
-        for line in lines:
-            host = re.search(pattern_host, line)
-            network = re.search(pattern_network, line)
-            if host:
-                ip = str(netaddr.IPAddress(re.findall(pattern_ip_host,
-                                                      line)[0]))
-                print("Host entry:    " + ip)
-
-            elif network:
-                # ip = re.findall(pattern_ip_network, line)[0]
-                ip = str(netaddr.IPAddress(re.findall(pattern_ip_network,
-                                                      line)[0]))
-                range = re.findall(pattern_range, line)[0]
-                print("Network Entry: " + ip + " (+" + range + " hosts)")
-
-    if sys.argv[1] == 'new':
-        name = str(sys.argv[2])
-        feed = feed_location + str(sys.argv[2])
-        feed_template = feed_location + 'Feed'
-        manifest = feed_location + 'manifest.xml'
-        tempManifest = temp_location + 'manifest.xml'
-        copy_Manifest_to_tempManifest(manifest, tempManifest)
-        print(name)
-        create_newFeed(feed_template, feed)
-        create_manifest_entry(tempManifest, name)
-        copy_tempManifest_to_Manifest(manifest, tempManifest)
-        # print "Completed, add the following line to your SRX to accept feed:\n
-        #         set security dynamic-address address-name "+name+
-        #         " profile category IPFilter feed "+name
-        username = input("Please enter your SRX Username:")
-        password = getpass.getpass()
-        srx_list = 'srx-list'
-        srxs = open(srx_list, 'r')
-        for srx in srxs:
-            print("Logging into SRX "+srx)
-            login = str(srx)
-            dev = Device(host=login, user=username, password=password)
-            dev.open()
-            dev.timeout = 300
-            cu = Config(dev)
-            set_cmd = 'set security dynamic-address address-name ' + name + \
-                      ' profile category IPFilter feed '+name
-            cu.load(set_cmd, format='set')
-            print("Applying changes, please wait....")
-            cu.commit()
-            dev.close()
-
-    if sys.argv[1] == 'drop':  # this stection needs to be converted to a function and completed
-        name = feed_location + str(sys.argv[2])
-        print(name)
-        print("do this next....")
-
-    if sys.argv[1] == 'setup':    # This area needs to be converted to a function and completed
-        print("Kick off initial setup process, copy files to target directories etc")
+    elif (options.new_feed and (options.feed is not None)):
+        new_feed(feed_location, temp_location, options.feed)
+    elif (options.drop_feed and (options.feed is not None)):
+        drop_feed(feed_location, temp_location, options.feed)
 
 
 if __name__ == '__main__':
