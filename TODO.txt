@@ -1,0 +1,17 @@
+TO DO
+
+1. update the command line options to utilise "optparse"
+
+2. Functionise the main section
+
+3. Complete Setup Functionise
+
+4. Extract Variables to not have so much replication
+
+5. Add Yaml support for configuration data - This is basically just for education / Fun
+
+6. have add check that the address doesn't exist before Adding
+
+7. add log stash export for Auto feature
+
+8. Add Bulk import feature
